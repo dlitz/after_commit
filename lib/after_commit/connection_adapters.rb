@@ -2,18 +2,24 @@ module AfterCommit
   module ConnectionAdapters
     def self.included(base)
       base.class_eval do
-        def transaction_with_callback(*args, &block)
-          # @disable_rollback is set to false at the start of the
-          # outermost call to #transaction.  After committing, it is
-          # set to true to prevent exceptions causing a spurious
-          # rollback.
-          outermost_call = @disable_rollback.nil?
-          @disable_rollback = false if outermost_call
-          transaction_without_callback(*args, &block)
-        ensure
-          @disable_rollback = nil if outermost_call
+        # Some (all?) versions of activerecord-jdbc-adapter have a
+        # ::JdbcSpec::MySQL that does not define a transaction method.  Avoid
+        # exploding on those versions.
+        unless (defined?(JRUBY_VERSION) and defined?(::JdbcSpec::MySQL) and
+                base == ::JdbcSpec::MySQL and !::JdbcSpec::MySQL.method_defined?(:transaction))
+          def transaction_with_callback(*args, &block)
+            # @disable_rollback is set to false at the start of the
+            # outermost call to #transaction.  After committing, it is
+            # set to true to prevent exceptions causing a spurious
+            # rollback.
+            outermost_call = @disable_rollback.nil?
+            @disable_rollback = false if outermost_call
+            transaction_without_callback(*args, &block)
+          ensure
+            @disable_rollback = nil if outermost_call
+          end
+          alias_method_chain :transaction, :callback
         end
-        alias_method_chain :transaction, :callback
 
         # The commit_db_transaction method gets called when the outermost
         # transaction finishes and everything inside commits. We want to
